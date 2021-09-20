@@ -114,15 +114,6 @@ namespace Rule34Downloader
 
             ////Change the status of the buttons on the UI accordingly
             //btnStartAsyncOperation.Enabled = true;
-            //while (progressBar1.Value == progressBar1.Maximum)
-            //{
-            //    TaskbarProgress.SetValue(Handle, 33, 99);
-            //    System.Threading.Thread.Sleep(1000);
-            //    TaskbarProgress.SetValue(Handle, 66, 99);
-            //    System.Threading.Thread.Sleep(1000);
-            //    TaskbarProgress.SetValue(Handle, 99, 99);
-            //    System.Threading.Thread.Sleep(1000);
-            //}
             ExtensionMethods.FlashNotification(this);
             button1.Enabled = true;
         }
