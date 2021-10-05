@@ -8,6 +8,8 @@ using System.Windows.Forms;
 using System.Linq;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Data.SQLite;
+using System.Data.SqlClient;
 
 namespace Rule34Downloader
 {
@@ -16,6 +18,10 @@ namespace Rule34Downloader
         BackgroundWorker Worker;
         string[] duplicateFiles = new string[] { };
         List<string> duplicatesNames = new List<string>();
+
+        private const string ConnectionString = "Data Source=D:\\Program Files\\DB Browser for SQLite\\Rule34ImagesDB.db";
+        private readonly List<Artist> artistsLocal = new List<Artist>();
+        private readonly List<Artist> artistsDB = new List<Artist>();
 
         public Form1()
         {
@@ -170,18 +176,18 @@ namespace Rule34Downloader
 
             for (int i = skipPages; i < pageCount; i++)
             {
-                finalURL = $"{finalURL}&pid={i * 42}";
+                var PagingURL = $"{finalURL}&pid={i * 42}";
 
                 if (pageCount > 1)
                 {
                     progressBarMaximumValue = pageCount * 42;
                 }
 
-                Worker.ReportProgress(progressBarPercentInt, $"Url with Paging: {finalURL}" + Environment.NewLine);
+                Worker.ReportProgress(progressBarPercentInt, $"Current Download Page URL: {PagingURL}" + Environment.NewLine);
                 //Timeout
                 System.Threading.Thread.Sleep(10000);
 
-                doc = web.Load(finalURL);
+                doc = web.Load(PagingURL);
 
                 var thumbs = doc.DocumentNode.SelectNodes("//span[@class='thumb']");
                 var linktoVideo = "";
@@ -193,7 +199,7 @@ namespace Rule34Downloader
                         Worker.ReportProgress(progressBarPercentInt, $"Thumbs is empty Connection Retry: {y}" + Environment.NewLine);
                         //Timeout
                         System.Threading.Thread.Sleep(10000);
-                        doc = web.Load(finalURL);
+                        doc = web.Load(PagingURL);
                         thumbs = doc.DocumentNode.SelectNodes("//span[@class='thumb']");
                         if (thumbs != null) break;
                     }
@@ -235,16 +241,30 @@ namespace Rule34Downloader
 
                         int fileNameReg = int.Parse(Regex.Match(fileName, @"\d+").Value);
 
-                        if (CheckForDuplicate(fileNameReg.ToString()))
+                        if (checkBox3.Checked)
                         {
-                            Worker.ReportProgress(progressBarPercentInt, $"File Already Found With Id : {fileNameReg.ToString()}" + Environment.NewLine);
-                            progressBarPercent = (progressBarValue / (double)progressBarMaximumValue) * 100;
-                            Worker.ReportProgress(progressBarPercentInt = (int)progressBarPercent);
-                            if (checkBox2.Checked) return;
-                            continue;
+                            if (CheckForDuplicate(fileNameReg.ToString()))
+                            {
+                                Worker.ReportProgress(progressBarPercentInt, $"File Already Found With Id : {fileNameReg.ToString()}" + Environment.NewLine);
+                                progressBarPercent = (progressBarValue / (double)progressBarMaximumValue) * 100;
+                                Worker.ReportProgress(progressBarPercentInt = (int)progressBarPercent);
+                                if (checkBox2.Checked) return;
+                                continue;
+                            }
+                        }
+                        else
+                        {
+                            if (CheckForDuplicate(fileNameReg.ToString()) || CheckForDuplicateFromDB(new Artist { ArtistName = textBox1.Text, ImageNumber = fileNameReg.ToString() }))
+                            {
+                                Worker.ReportProgress(progressBarPercentInt, $"File Already Found With Id : {fileNameReg.ToString()}" + Environment.NewLine);
+                                progressBarPercent = (progressBarValue / (double)progressBarMaximumValue) * 100;
+                                Worker.ReportProgress(progressBarPercentInt = (int)progressBarPercent);
+                                if (checkBox2.Checked) return;
+                                continue;
+                            }
                         }
 
-                        Worker.ReportProgress(progressBarPercentInt, $"Download Video from: {urlSimple}" + Environment.NewLine);
+                        Worker.ReportProgress(progressBarPercentInt, $"Download Video: {fileNameReg}.mp4" + Environment.NewLine);
 
                         using (WebClient wc = new WebClient())
                         {
@@ -256,6 +276,8 @@ namespace Rule34Downloader
                                 $"D:\\Tests\\{textBox1.Text}\\{fileNameReg}.mp4"
                             );
                         }
+
+                        AddArtist(new Artist { ArtistName = textBox1.Text, ImageNumber = fileNameReg.ToString(), CreatedOn = DateTime.Now.ToShortDateString() });
                     }
                     else if (document.DocumentNode.SelectNodes("//img[@id='image']") != null)
                     {
@@ -267,17 +289,33 @@ namespace Rule34Downloader
                         var fileNameReg = urlSimple.Substring(urlSimple.LastIndexOf('?') + 1);
                         var format = Between(urlSimple, ".", "?", true);
 
-                        if (CheckForDuplicate(fileNameReg))
+                        if (checkBox3.Checked)
                         {
-                            Worker.ReportProgress(progressBarPercentInt, $"File Already Found With Id : {fileNameReg}" + Environment.NewLine);
-                            progressBarPercent = (progressBarValue / (double)progressBarMaximumValue) * 100;
-                            Worker.ReportProgress(progressBarPercentInt = (int)progressBarPercent);
+                            if (CheckForDuplicate(fileNameReg))
+                            {
+                                Worker.ReportProgress(progressBarPercentInt, $"File Already Found With Id : {fileNameReg}" + Environment.NewLine);
+                                progressBarPercent = (progressBarValue / (double)progressBarMaximumValue) * 100;
+                                Worker.ReportProgress(progressBarPercentInt = (int)progressBarPercent);
 
-                            if (checkBox2.Checked) return;
-                            continue;
+                                if (checkBox2.Checked) return;
+                                continue;
+                            }
                         }
+                        else
+                        {
+                            if (CheckForDuplicate(fileNameReg) || CheckForDuplicateFromDB(new Artist { ArtistName = textBox1.Text, ImageNumber = fileNameReg.ToString() }))
+                            {
+                                Worker.ReportProgress(progressBarPercentInt, $"File Already Found With Id : {fileNameReg}" + Environment.NewLine);
+                                progressBarPercent = (progressBarValue / (double)progressBarMaximumValue) * 100;
+                                Worker.ReportProgress(progressBarPercentInt = (int)progressBarPercent);
 
-                        Worker.ReportProgress(progressBarPercentInt, $"Correct Image Format Found: {fileNameReg}.{format}" + Environment.NewLine);
+                                if (checkBox2.Checked) return;
+                                continue;
+                            }
+                        }
+                        
+
+                        Worker.ReportProgress(progressBarPercentInt, $"Download Image: {fileNameReg}.{format}" + Environment.NewLine);
                         using (WebClient wc = new WebClient())
                         {
                             //wc.DownloadProgressChanged += wc_DownloadProgressChanged;
@@ -288,6 +326,8 @@ namespace Rule34Downloader
                                 $"D:\\Tests\\{textBox1.Text}\\{fileNameReg}.{format}"
                             );
                         }
+
+                        AddArtist(new Artist { ArtistName = textBox1.Text, ImageNumber = fileNameReg.ToString(), CreatedOn = DateTime.Now.ToShortDateString() });
                     }
                     progressBarPercent = (progressBarValue / (double)progressBarMaximumValue) * 100;
 
@@ -296,7 +336,7 @@ namespace Rule34Downloader
             }
         }
 
-        private string RemoveArtistsFromSearch(string url)
+        public string RemoveArtistsFromSearch(string url)
         {
             var searchArtist = url;
             var web = new HtmlAgilityPack.HtmlWeb();
@@ -399,67 +439,234 @@ namespace Rule34Downloader
             }
         }
 
-        public static class TaskbarProgress
+        public void AddArtist(Artist artist, bool checkDuplicate = true)
         {
-            public enum TaskbarStates
+            if (CheckForDuplicateFromDB(artist))
             {
-                NoProgress = 0,
-                Indeterminate = 0x1,
-                Normal = 0x2,
-                Error = 0x4,
-                Paused = 0x8
+                Worker.ReportProgress(0, $"This Image Already Found in DB: {artist.ArtistName} - {artist.ImageNumber}" + Environment.NewLine);
+                return;
             }
 
-            [ComImport()]
-            [Guid("ea1afb91-9e28-4b86-90e9-9e9f8a5eefaf")]
-            [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-            private interface ITaskbarList3
+            var queryString = "insert into Images(ArtistName, ImageNumber, CreatedOn)" +
+                                " values(@artistName, @imageNumber, @createdOn);";
+
+            using (SQLiteConnection connection = new SQLiteConnection(ConnectionString))
             {
-                // ITaskbarList
-                [PreserveSig]
-                void HrInit();
-                [PreserveSig]
-                void AddTab(IntPtr hwnd);
-                [PreserveSig]
-                void DeleteTab(IntPtr hwnd);
-                [PreserveSig]
-                void ActivateTab(IntPtr hwnd);
-                [PreserveSig]
-                void SetActiveAlt(IntPtr hwnd);
+                connection.Open();
 
-                // ITaskbarList2
-                [PreserveSig]
-                void MarkFullscreenWindow(IntPtr hwnd, [MarshalAs(UnmanagedType.Bool)] bool fFullscreen);
+                //1. Add the new participant to the database
+                var command = new SQLiteCommand(queryString, connection);
+                command.Parameters.AddWithValue("@artistName", artist.ArtistName);
+                command.Parameters.AddWithValue("@imageNumber", artist.ImageNumber);
+                command.Parameters.AddWithValue("@createdOn", artist.CreatedOn);
 
-                // ITaskbarList3
-                [PreserveSig]
-                void SetProgressValue(IntPtr hwnd, UInt64 ullCompleted, UInt64 ullTotal);
-                [PreserveSig]
-                void SetProgressState(IntPtr hwnd, TaskbarStates state);
-            }
-
-            [ComImport()]
-            [Guid("56fdf344-fd6d-11d0-958a-006097c9a090")]
-            [ClassInterface(ClassInterfaceType.None)]
-            private class TaskbarInstance
-            {
-            }
-
-            private static ITaskbarList3 taskbarInstance = (ITaskbarList3)new TaskbarInstance();
-            private static bool taskbarSupported = Environment.OSVersion.Version >= new Version(6, 1);
-
-            public static void SetState(IntPtr windowHandle, TaskbarStates taskbarState)
-            {
-                if (taskbarSupported) taskbarInstance.SetProgressState(windowHandle, taskbarState);
-            }
-
-            public static void SetValue(IntPtr windowHandle, double progressValue, double progressMax)
-            {
-                if (taskbarSupported) taskbarInstance.SetProgressValue(windowHandle, (ulong)progressValue, (ulong)progressMax);
+                command.ExecuteScalar();
             }
         }
 
-        
+        public void LoadArtists()
+        {
+            const string stringSql = "SELECT * FROM Images";
+
+            using (SQLiteConnection connection = new SQLiteConnection(ConnectionString))
+            {
+                connection.Open();
+
+                var command = new SQLiteCommand(stringSql, connection);
+
+                using (SQLiteDataReader sqlReader = command.ExecuteReader())
+                {
+                    while (sqlReader.Read())
+                    {
+                        string artistName = (string)sqlReader["ArtistName"];
+                        string imageNumber = (string)sqlReader["ImageNumber"];
+                        string createdOn = (string)sqlReader["CreatedOn"];
+
+                        Artist artist = new Artist()
+                        {
+                            ArtistName = artistName,
+                            ImageNumber = imageNumber,
+                            CreatedOn = createdOn
+                        };
+                        artistsDB.Add(artist);
+                    }
+                }
+            }
+        }
+
+        public bool CheckForDuplicateFromDB(Artist artist)
+        {
+            const string stringSql = "SELECT * FROM Images WHERE ArtistName = @artistName and ImageNumber = @imageNumber";
+
+            using (SQLiteConnection connection = new SQLiteConnection(ConnectionString))
+            {
+                connection.Open();
+
+                var command = new SQLiteCommand(stringSql, connection);
+
+                command.Parameters.Add(new SQLiteParameter("@artistName", artist.ArtistName));
+                command.Parameters.Add(new SQLiteParameter("@imageNumber", artist.ImageNumber));
+
+                using (SQLiteDataReader sqlReader = command.ExecuteReader())
+                {
+                    while (sqlReader.Read())
+                    {
+                        return sqlReader.HasRows;
+                    }
+                    return sqlReader.HasRows;
+                }
+            }
+        }
+
+        public void ReadLoaclArtists()
+        {
+            CheckForDuplicateFromDB(new Artist { ArtistName = "TEST", ImageNumber = "4164000" });
+
+            CheckForDuplicateFromDB(new Artist { ArtistName = "zly", ImageNumber = "4164000" });
+
+            artistsLocal.Clear();
+
+            var progressBarValue = 0;
+            var progressBarMaximumValue = Directory.GetDirectories(@"D:\\Tests").Length;
+            var progressBarPercent = 0.0;
+
+            foreach (var dir in Directory.GetDirectories(@"D:\\Tests"))
+            {
+                var artistName = new DirectoryInfo(dir).Name;
+
+                foreach (string file in Directory.GetFiles(dir))
+                {
+                    FileInfo fi = new FileInfo(file);
+                    var pa = Path.GetFileNameWithoutExtension(file);
+
+
+                    Artist artist = new Artist()
+                    {
+                        ArtistName = artistName,
+                        ImageNumber = pa,
+                        CreatedOn = fi.CreationTime.ToShortDateString()
+                    };
+
+                    artistsLocal.Add(artist);
+                }
+
+                progressBarValue++;
+                progressBarPercent = (progressBarValue / (double)progressBarMaximumValue) * 100;
+                progressBar1.Value = (int)progressBarPercent;
+                TaskbarProgress.SetValue(Handle, progressBarPercent, progressBarMaximumValue);
+            }
+        }
+
+        public void WriteLocalArtists()
+        {
+            var progressBarValue = 0;
+            var progressBarMaximumValue = artistsLocal.Count;
+            var progressBarPercent = 0.0;
+
+            if (artistsLocal.Any())
+            {
+                foreach (var localArtist in artistsLocal)
+                {
+                    AddArtist(localArtist);
+
+                    progressBarValue++;
+                    progressBarPercent = (progressBarValue / (double)progressBarMaximumValue) * 100;
+                    progressBar1.Value = (int)progressBarPercent;
+                    TaskbarProgress.SetValue(Handle, progressBarPercent, progressBarMaximumValue);
+                }
+            }
+        }
+
+        //public void CreateArtistDB()
+        //{
+        //    var queryString = "insert into Artists(ArtistName, ImageNumber, CreatedOn)" +
+        //                        " values(@artistName, @imageNumber, @createdOn);";
+
+        //    using (SQLiteConnection connection = new SQLiteConnection(ConnectionString))
+        //    {
+        //        connection.Open();
+
+        //        //1. Add the new participant to the database
+        //        var command = new SQLiteCommand(queryString, connection);
+        //        command.Parameters.AddWithValue("@artistName", artist.ArtistName);
+        //        command.Parameters.AddWithValue("@imageNumber", artist.ImageNumber);
+        //        command.Parameters.AddWithValue("@createdOn", artist.CreatedOn);
+
+        //        command.ExecuteScalar();
+
+        //        //2. Add the new participants to the local collection
+        //        artists.Add(artist);
+        //    }
+        //}
+
+        private void button2_Click(object sender, EventArgs e)
+        {
+            ReadLoaclArtists();
+        }
+
+        private void button2_Click_1(object sender, EventArgs e)
+        {
+            WriteLocalArtists();
+        }
+    }
+    public static class TaskbarProgress
+    {
+        public enum TaskbarStates
+        {
+            NoProgress = 0,
+            Indeterminate = 0x1,
+            Normal = 0x2,
+            Error = 0x4,
+            Paused = 0x8
+        }
+
+        [ComImport()]
+        [Guid("ea1afb91-9e28-4b86-90e9-9e9f8a5eefaf")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface ITaskbarList3
+        {
+            // ITaskbarList
+            [PreserveSig]
+            void HrInit();
+            [PreserveSig]
+            void AddTab(IntPtr hwnd);
+            [PreserveSig]
+            void DeleteTab(IntPtr hwnd);
+            [PreserveSig]
+            void ActivateTab(IntPtr hwnd);
+            [PreserveSig]
+            void SetActiveAlt(IntPtr hwnd);
+
+            // ITaskbarList2
+            [PreserveSig]
+            void MarkFullscreenWindow(IntPtr hwnd, [MarshalAs(UnmanagedType.Bool)] bool fFullscreen);
+
+            // ITaskbarList3
+            [PreserveSig]
+            void SetProgressValue(IntPtr hwnd, UInt64 ullCompleted, UInt64 ullTotal);
+            [PreserveSig]
+            void SetProgressState(IntPtr hwnd, TaskbarStates state);
+        }
+
+        [ComImport()]
+        [Guid("56fdf344-fd6d-11d0-958a-006097c9a090")]
+        [ClassInterface(ClassInterfaceType.None)]
+        private class TaskbarInstance
+        {
+        }
+
+        private static ITaskbarList3 taskbarInstance = (ITaskbarList3)new TaskbarInstance();
+        private static bool taskbarSupported = Environment.OSVersion.Version >= new Version(6, 1);
+
+        public static void SetState(IntPtr windowHandle, TaskbarStates taskbarState)
+        {
+            if (taskbarSupported) taskbarInstance.SetProgressState(windowHandle, taskbarState);
+        }
+
+        public static void SetValue(IntPtr windowHandle, double progressValue, double progressMax)
+        {
+            if (taskbarSupported) taskbarInstance.SetProgressValue(windowHandle, (ulong)progressValue, (ulong)progressMax);
+        }
     }
 
     public static class ExtensionMethods
@@ -508,8 +715,13 @@ namespace Rule34Downloader
             return FlashWindowEx(ref fInfo);
         }
     }
-    //private void wc_DownloadProgressChanged(object sender, DownloadProgressChangedEventArgs e)
-    //{
-    //    progressBar1.Value = e.ProgressPercentage;
-    //}}
+
+    public class Artist
+    {
+        public string ArtistName { get; set; }
+
+        public string ImageNumber { get; set; }
+
+        public string CreatedOn { get; set; }
+    }
 }
