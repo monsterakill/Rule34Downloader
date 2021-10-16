@@ -19,7 +19,8 @@ namespace Rule34Downloader
         string[] duplicateFiles = new string[] { };
         List<string> duplicatesNames = new List<string>();
 
-        private const string ConnectionString = "Data Source=D:\\Program Files\\DB Browser for SQLite\\Rule34ImagesDB.db";
+        private string ConnectionString = string.Empty;
+        private string ImageFolderPath = string.Empty;
         private readonly List<Artist> artistsLocal = new List<Artist>();
         private readonly List<Artist> artistsDB = new List<Artist>();
 
@@ -35,12 +36,26 @@ namespace Rule34Downloader
                     (Worker_RunWorkerCompleted);
             Worker.WorkerReportsProgress = true;
             Worker.WorkerSupportsCancellation = true;
+
+            CheckPaths(PathType.All);
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+
         }
 
         private void button1_Click(object sender, EventArgs e)
         {
-            button1.Enabled = false;
-            Worker.RunWorkerAsync();
+            if (!string.IsNullOrEmpty(ImageFolderPath))
+            {
+                button1.Enabled = false;
+                Worker.RunWorkerAsync();
+            }
+            else
+            {
+                LogField.AppendText("Error: Select Image Save Folder!" + Environment.NewLine);
+            }
         }
 
         void Worker_ProgressChanged(object sender, ProgressChangedEventArgs e)
@@ -53,48 +68,17 @@ namespace Rule34Downloader
             // Update the progressBar with the integer supplied to us from the
 
             // ReportProgress() function. 
-            var defaultValue = 0;
             progressBar1.Maximum = 100;
             if (e.UserState != null)
             {
                 LogField.AppendText(e.UserState.ToString());
             }
-
-            progressBar1.Value = e.ProgressPercentage;
+            if(e.ProgressPercentage != -1)
+            {
+                progressBar1.Value = e.ProgressPercentage;
+            }
             TaskbarProgress.SetValue(Handle, progressBar1.Value, progressBar1.Maximum);
-
-            //while (progressBar1.Value == progressBar1.Maximum && !ContainsFocus)
-            //{
-            //    TaskbarProgress.SetValue(Handle, 33, 99);
-            //    System.Threading.Thread.Sleep(1000);
-            //    TaskbarProgress.SetValue(Handle, 66, 99);
-            //    System.Threading.Thread.Sleep(1000);
-            //    TaskbarProgress.SetValue(Handle, 99, 99);
-            //    System.Threading.Thread.Sleep(1000);
-            //    TaskbarProgress.SetValue(Handle, 66, 99);
-            //    System.Threading.Thread.Sleep(1000);
-            //    TaskbarProgress.SetValue(Handle, 33, 99);
-            //    System.Threading.Thread.Sleep(1000);
-            //    TaskbarProgress.SetValue(Handle, 0, 99);
-            //    System.Threading.Thread.Sleep(1000);
-            //}
-            //if(progressBar1.Value == progressBar1.Maximum)
-            //{
-
-            //}
-            //lblStatus.Text = "Processing......" + progressBar1.Value.ToString() + "%";
-
         }
-
-        //protected override void OnDeactivate(EventArgs e)
-        //{
-        //    LogField.AppendText("OnDeactivate");
-        //}
-
-        //protected override void OnActivated(EventArgs e)
-        //{
-        //    LogField.AppendText("OnActivated");
-        //}
 
         void Worker_RunWorkerCompleted(object sender, RunWorkerCompletedEventArgs e)
         {
@@ -162,10 +146,10 @@ namespace Rule34Downloader
 
             Worker.ReportProgress(progressBarPercentInt, $"Page count:{pageCount}" + Environment.NewLine);
 
-            if (!Directory.Exists($"D:\\Tests\\{textBox1.Text}"))
+            if (!Directory.Exists($"{ImageFolderPath}\\{textBox1.Text}"))
             {
-                Directory.CreateDirectory($"D:\\Tests\\{textBox1.Text}");
-                Worker.ReportProgress(progressBarPercentInt, $"Creating Directory: D:\\Tests\\{textBox1.Text}" + Environment.NewLine);
+                Directory.CreateDirectory($"{ImageFolderPath}\\{textBox1.Text}");
+                Worker.ReportProgress(progressBarPercentInt, $"Creating Directory: {ImageFolderPath}\\{textBox1.Text}" + Environment.NewLine);
             }
 
             var skipPages = 0;
@@ -273,7 +257,7 @@ namespace Rule34Downloader
                                 // Param1 = Link of file
                                 new System.Uri(urlSimple),
                                 // Param2 = Path to save
-                                $"D:\\Tests\\{textBox1.Text}\\{fileNameReg}.mp4"
+                                $"{ImageFolderPath}\\{textBox1.Text}\\{fileNameReg}.mp4"
                             );
                         }
 
@@ -313,7 +297,6 @@ namespace Rule34Downloader
                                 continue;
                             }
                         }
-                        
 
                         Worker.ReportProgress(progressBarPercentInt, $"Download Image: {fileNameReg}.{format}" + Environment.NewLine);
                         using (WebClient wc = new WebClient())
@@ -323,7 +306,7 @@ namespace Rule34Downloader
                                 // Param1 = Link of file
                                 new System.Uri(urlSimple),
                                 // Param2 = Path to save
-                                $"D:\\Tests\\{textBox1.Text}\\{fileNameReg}.{format}"
+                                $"{ImageFolderPath}\\{textBox1.Text}\\{fileNameReg}.{format}"
                             );
                         }
 
@@ -360,7 +343,6 @@ namespace Rule34Downloader
 
             foreach (var artist in artists)
             {
-                var fixedArtistName = "";
                 var removeSymbolsFromArtistNames = artist.InnerText.Substring(6).Substring(0, artist.InnerText.Substring(6).IndexOf("\n") - 1);
                 if (removeSymbolsFromArtistNames.Contains(" "))
                 {
@@ -430,7 +412,7 @@ namespace Rule34Downloader
             }
             else
             {
-                duplicateFiles = Directory.GetFiles($"D:\\Tests\\{textBox1.Text}\\");
+                duplicateFiles = Directory.GetFiles($"{ImageFolderPath}\\{textBox1.Text}\\");
                 foreach (var dupl in duplicateFiles)
                 {
                     duplicatesNames.Add(Path.GetFileNameWithoutExtension(dupl));
@@ -439,56 +421,62 @@ namespace Rule34Downloader
             }
         }
 
-        public void AddArtist(Artist artist, bool checkDuplicate = true)
+        public void AddArtist(Artist artist)
         {
-            if (CheckForDuplicateFromDB(artist))
+            if (!string.IsNullOrEmpty(ConnectionString))
             {
-                Worker.ReportProgress(0, $"This Image Already Found in DB: {artist.ArtistName} - {artist.ImageNumber}" + Environment.NewLine);
-                return;
-            }
+                if (CheckForDuplicateFromDB(artist))
+                {
+                    Worker.ReportProgress(-1, $"This Image Already Found in DB: {artist.ArtistName} - {artist.ImageNumber}" + Environment.NewLine);
+                    return;
+                }
 
-            var queryString = "insert into Images(ArtistName, ImageNumber, CreatedOn)" +
-                                " values(@artistName, @imageNumber, @createdOn);";
+                var queryString = "insert into Images(ArtistName, ImageNumber, CreatedOn)" +
+                                    " values(@artistName, @imageNumber, @createdOn);";
 
-            using (SQLiteConnection connection = new SQLiteConnection(ConnectionString))
-            {
-                connection.Open();
+                using (SQLiteConnection connection = new SQLiteConnection(ConnectionString))
+                {
+                    connection.Open();
 
-                //1. Add the new participant to the database
-                var command = new SQLiteCommand(queryString, connection);
-                command.Parameters.AddWithValue("@artistName", artist.ArtistName);
-                command.Parameters.AddWithValue("@imageNumber", artist.ImageNumber);
-                command.Parameters.AddWithValue("@createdOn", artist.CreatedOn);
+                    //1. Add the new participant to the database
+                    var command = new SQLiteCommand(queryString, connection);
+                    command.Parameters.AddWithValue("@artistName", artist.ArtistName);
+                    command.Parameters.AddWithValue("@imageNumber", artist.ImageNumber);
+                    command.Parameters.AddWithValue("@createdOn", artist.CreatedOn);
 
-                command.ExecuteScalar();
+                    command.ExecuteScalar();
+                }
             }
         }
 
         public void LoadArtists()
         {
-            const string stringSql = "SELECT * FROM Images";
-
-            using (SQLiteConnection connection = new SQLiteConnection(ConnectionString))
+            if (!string.IsNullOrEmpty(ConnectionString))
             {
-                connection.Open();
+                const string stringSql = "SELECT * FROM Images";
 
-                var command = new SQLiteCommand(stringSql, connection);
-
-                using (SQLiteDataReader sqlReader = command.ExecuteReader())
+                using (SQLiteConnection connection = new SQLiteConnection(ConnectionString))
                 {
-                    while (sqlReader.Read())
-                    {
-                        string artistName = (string)sqlReader["ArtistName"];
-                        string imageNumber = (string)sqlReader["ImageNumber"];
-                        string createdOn = (string)sqlReader["CreatedOn"];
+                    connection.Open();
 
-                        Artist artist = new Artist()
+                    var command = new SQLiteCommand(stringSql, connection);
+
+                    using (SQLiteDataReader sqlReader = command.ExecuteReader())
+                    {
+                        while (sqlReader.Read())
                         {
-                            ArtistName = artistName,
-                            ImageNumber = imageNumber,
-                            CreatedOn = createdOn
-                        };
-                        artistsDB.Add(artist);
+                            string artistName = (string)sqlReader["ArtistName"];
+                            string imageNumber = (string)sqlReader["ImageNumber"];
+                            string createdOn = (string)sqlReader["CreatedOn"];
+
+                            Artist artist = new Artist()
+                            {
+                                ArtistName = artistName,
+                                ImageNumber = imageNumber,
+                                CreatedOn = createdOn
+                            };
+                            artistsDB.Add(artist);
+                        }
                     }
                 }
             }
@@ -496,41 +484,41 @@ namespace Rule34Downloader
 
         public bool CheckForDuplicateFromDB(Artist artist)
         {
-            const string stringSql = "SELECT * FROM Images WHERE ArtistName = @artistName and ImageNumber = @imageNumber";
-
-            using (SQLiteConnection connection = new SQLiteConnection(ConnectionString))
+            if (!string.IsNullOrEmpty(ConnectionString))
             {
-                connection.Open();
+                const string stringSql = "SELECT * FROM Images WHERE ArtistName = @artistName and ImageNumber = @imageNumber";
 
-                var command = new SQLiteCommand(stringSql, connection);
-
-                command.Parameters.Add(new SQLiteParameter("@artistName", artist.ArtistName));
-                command.Parameters.Add(new SQLiteParameter("@imageNumber", artist.ImageNumber));
-
-                using (SQLiteDataReader sqlReader = command.ExecuteReader())
+                using (SQLiteConnection connection = new SQLiteConnection(ConnectionString))
                 {
-                    while (sqlReader.Read())
+                    connection.Open();
+
+                    var command = new SQLiteCommand(stringSql, connection);
+
+                    command.Parameters.Add(new SQLiteParameter("@artistName", artist.ArtistName));
+                    command.Parameters.Add(new SQLiteParameter("@imageNumber", artist.ImageNumber));
+
+                    using (SQLiteDataReader sqlReader = command.ExecuteReader())
                     {
+                        while (sqlReader.Read())
+                        {
+                            return sqlReader.HasRows;
+                        }
                         return sqlReader.HasRows;
                     }
-                    return sqlReader.HasRows;
                 }
             }
+            return false;
         }
 
         public void ReadLoaclArtists()
         {
-            CheckForDuplicateFromDB(new Artist { ArtistName = "TEST", ImageNumber = "4164000" });
-
-            CheckForDuplicateFromDB(new Artist { ArtistName = "zly", ImageNumber = "4164000" });
-
             artistsLocal.Clear();
 
             var progressBarValue = 0;
-            var progressBarMaximumValue = Directory.GetDirectories(@"D:\\Tests").Length;
+            var progressBarMaximumValue = Directory.GetDirectories($"{ImageFolderPath}").Length;
             var progressBarPercent = 0.0;
 
-            foreach (var dir in Directory.GetDirectories(@"D:\\Tests"))
+            foreach (var dir in Directory.GetDirectories($"{ImageFolderPath}"))
             {
                 var artistName = new DirectoryInfo(dir).Name;
 
@@ -577,28 +565,6 @@ namespace Rule34Downloader
             }
         }
 
-        //public void CreateArtistDB()
-        //{
-        //    var queryString = "insert into Artists(ArtistName, ImageNumber, CreatedOn)" +
-        //                        " values(@artistName, @imageNumber, @createdOn);";
-
-        //    using (SQLiteConnection connection = new SQLiteConnection(ConnectionString))
-        //    {
-        //        connection.Open();
-
-        //        //1. Add the new participant to the database
-        //        var command = new SQLiteCommand(queryString, connection);
-        //        command.Parameters.AddWithValue("@artistName", artist.ArtistName);
-        //        command.Parameters.AddWithValue("@imageNumber", artist.ImageNumber);
-        //        command.Parameters.AddWithValue("@createdOn", artist.CreatedOn);
-
-        //        command.ExecuteScalar();
-
-        //        //2. Add the new participants to the local collection
-        //        artists.Add(artist);
-        //    }
-        //}
-
         private void button2_Click(object sender, EventArgs e)
         {
             ReadLoaclArtists();
@@ -607,6 +573,90 @@ namespace Rule34Downloader
         private void button2_Click_1(object sender, EventArgs e)
         {
             WriteLocalArtists();
+        }
+
+        private void button3_Click(object sender, EventArgs e)
+        {
+            using (OpenFileDialog openFileDialog = new OpenFileDialog())
+            {
+                openFileDialog.InitialDirectory = "d:\\";
+                openFileDialog.Filter = "DB File (*.db)|*.db";
+                openFileDialog.FilterIndex = 2;
+                openFileDialog.RestoreDirectory = true;
+
+                if (openFileDialog.ShowDialog() == DialogResult.OK)
+                {
+                    //Get the path of specified file
+                    DBPath.Text = openFileDialog.FileName;
+
+                    CheckPaths(PathType.DBPath);
+
+                    //Save as Default Setting
+                    Properties.Settings.Default.DBConnectionPath = DBPath.Text;
+                    Properties.Settings.Default.Save();
+                }
+            }
+        }
+
+        private void button4_Click(object sender, EventArgs e)
+        {
+            using (FolderBrowserDialog openFolderDialog = new FolderBrowserDialog())
+            {
+                if (openFolderDialog.ShowDialog() == DialogResult.OK && !string.IsNullOrWhiteSpace(openFolderDialog.SelectedPath))
+                {
+                    //Get the ImagePath
+                    ImagePath.Text = openFolderDialog.SelectedPath;
+
+                    CheckPaths(PathType.ImagePath);
+
+                    //Save as Default Setting
+                    Properties.Settings.Default.ImageSavePath = ImagePath.Text;
+                    Properties.Settings.Default.Save();
+                }
+            }
+        }
+
+        private void pictureBox1_Click(object sender, EventArgs e)
+        {
+            pictureBox1.Image = pictureBox1.ErrorImage;
+        }
+
+        private void CheckPaths(PathType pathType)
+        {
+            if (!string.IsNullOrEmpty(Properties.Settings.Default.DBConnectionPath) && pathType == PathType.All)
+            {
+                DBPath.Text = Properties.Settings.Default.DBConnectionPath;
+            }
+            if (!string.IsNullOrEmpty(Properties.Settings.Default.ImageSavePath) && pathType == PathType.All)
+            {
+                ImagePath.Text = Properties.Settings.Default.ImageSavePath;
+            }
+
+            if (pathType == PathType.DBPath || pathType == PathType.All)
+            {
+                if (string.IsNullOrEmpty(DBPath.Text))
+                {
+                    pictureBox1.Image = pictureBox1.ErrorImage;
+                }
+                else
+                {
+                    pictureBox1.Image = pictureBox1.InitialImage;
+                    ConnectionString = $"Data Source={DBPath.Text}";
+                }
+            }
+
+            if (pathType == PathType.ImagePath || pathType == PathType.All)
+            {
+                if (string.IsNullOrEmpty(ImagePath.Text))
+                {
+                    pictureBox2.Image = pictureBox2.ErrorImage;
+                }
+                else
+                {
+                    pictureBox2.Image = pictureBox2.InitialImage;
+                    ImageFolderPath = ImagePath.Text;
+                }
+            }
         }
     }
     public static class TaskbarProgress
@@ -723,5 +773,12 @@ namespace Rule34Downloader
         public string ImageNumber { get; set; }
 
         public string CreatedOn { get; set; }
+    }
+
+    public enum PathType
+    {
+        All = 0,
+        ImagePath = 1,
+        DBPath = 2
     }
 }
