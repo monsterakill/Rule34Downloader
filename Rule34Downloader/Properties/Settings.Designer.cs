@@ -46,5 +46,17 @@ namespace Rule34Downloader.Properties {
                 this["ImageSavePath"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string FFMPEGPath {
+            get {
+                return ((string)(this["FFMPEGPath"]));
+            }
+            set {
+                this["FFMPEGPath"] = value;
+            }
+        }
     }
 }
