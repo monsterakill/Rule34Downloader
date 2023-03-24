@@ -2507,7 +2507,7 @@ namespace Rule34Downloader
                             //tagList.Add(comixInfo);
                         }
                     }
-                    progressBarPercent = ((double)iteration / ((double)lines.Count() - (double)lines.SkipWhile(x => x != "(同人誌) [背徳漢] 艦これ睡姦　-沈黙の姦隊- 愛宕 (艦隊これくしょん -艦これ-).zip").Count())) * 100;
+                    progressBarPercent = ((double)iteration / ((double)lines.Count() - (double)lines.Count())) * 100; //.SkipWhile(x => x != "")
                     bw.ReportProgress(progressBarPercentInt = (int)progressBarPercent);
                 }
             };
