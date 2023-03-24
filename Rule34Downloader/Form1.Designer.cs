@@ -77,6 +77,9 @@
             this.gifTotalProgress = new System.Windows.Forms.Label();
             this.gifSlash = new System.Windows.Forms.Label();
             this.button4 = new System.Windows.Forms.Button();
+            this.button8 = new System.Windows.Forms.Button();
+            this.button9 = new System.Windows.Forms.Button();
+            this.progressBar3 = new System.Windows.Forms.ProgressBar();
             ((System.ComponentModel.ISupportInitialize)(this.dataGridView1)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBox3)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBox2)).BeginInit();
@@ -86,7 +89,7 @@
             // 
             // button1
             // 
-            this.button1.Location = new System.Drawing.Point(311, 227);
+            this.button1.Location = new System.Drawing.Point(311, 265);
             this.button1.Name = "button1";
             this.button1.Size = new System.Drawing.Size(75, 23);
             this.button1.TabIndex = 0;
@@ -96,7 +99,7 @@
             // 
             // progressBar1
             // 
-            this.progressBar1.Location = new System.Drawing.Point(12, 198);
+            this.progressBar1.Location = new System.Drawing.Point(12, 236);
             this.progressBar1.Name = "progressBar1";
             this.progressBar1.Size = new System.Drawing.Size(374, 23);
             this.progressBar1.TabIndex = 1;
@@ -242,10 +245,10 @@
             // 
             this.dataGridView1.AllowUserToDeleteRows = false;
             this.dataGridView1.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-            this.dataGridView1.Location = new System.Drawing.Point(12, 256);
+            this.dataGridView1.Location = new System.Drawing.Point(12, 294);
             this.dataGridView1.Name = "dataGridView1";
             this.dataGridView1.ReadOnly = true;
-            this.dataGridView1.Size = new System.Drawing.Size(760, 193);
+            this.dataGridView1.Size = new System.Drawing.Size(760, 155);
             this.dataGridView1.TabIndex = 20;
             // 
             // button5
@@ -326,7 +329,7 @@
             // 
             // button7
             // 
-            this.button7.Location = new System.Drawing.Point(1030, 59);
+            this.button7.Location = new System.Drawing.Point(1162, 61);
             this.button7.Name = "button7";
             this.button7.Size = new System.Drawing.Size(75, 23);
             this.button7.TabIndex = 28;
@@ -456,6 +459,7 @@
             // 
             // browser
             // 
+            this.browser.AllowExternalDrop = true;
             this.browser.CreationProperties = null;
             this.browser.DefaultBackgroundColor = System.Drawing.Color.White;
             this.browser.Location = new System.Drawing.Point(774, 89);
@@ -494,7 +498,7 @@
             // 
             // DownloadAll
             // 
-            this.DownloadAll.Location = new System.Drawing.Point(12, 226);
+            this.DownloadAll.Location = new System.Drawing.Point(12, 265);
             this.DownloadAll.Name = "DownloadAll";
             this.DownloadAll.Size = new System.Drawing.Size(102, 23);
             this.DownloadAll.TabIndex = 41;
@@ -540,11 +544,41 @@
             this.button4.UseVisualStyleBackColor = true;
             this.button4.Click += new System.EventHandler(this.button4_Click_1);
             // 
+            // button8
+            // 
+            this.button8.Location = new System.Drawing.Point(1081, 60);
+            this.button8.Name = "button8";
+            this.button8.Size = new System.Drawing.Size(75, 23);
+            this.button8.TabIndex = 46;
+            this.button8.Text = "button8";
+            this.button8.UseVisualStyleBackColor = true;
+            this.button8.Click += new System.EventHandler(this.button8_Click);
+            // 
+            // button9
+            // 
+            this.button9.Location = new System.Drawing.Point(120, 265);
+            this.button9.Name = "button9";
+            this.button9.Size = new System.Drawing.Size(75, 23);
+            this.button9.TabIndex = 47;
+            this.button9.Text = "button9";
+            this.button9.UseVisualStyleBackColor = true;
+            this.button9.Click += new System.EventHandler(this.button9_Click);
+            // 
+            // progressBar3
+            // 
+            this.progressBar3.Location = new System.Drawing.Point(12, 207);
+            this.progressBar3.Name = "progressBar3";
+            this.progressBar3.Size = new System.Drawing.Size(374, 23);
+            this.progressBar3.TabIndex = 48;
+            // 
             // Form1
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(1249, 545);
+            this.Controls.Add(this.progressBar3);
+            this.Controls.Add(this.button9);
+            this.Controls.Add(this.button8);
             this.Controls.Add(this.button4);
             this.Controls.Add(this.gifSlash);
             this.Controls.Add(this.gifTotalProgress);
@@ -653,6 +687,9 @@
         private System.Windows.Forms.Label gifTotalProgress;
         private System.Windows.Forms.Label gifSlash;
         private System.Windows.Forms.Button button4;
+        private System.Windows.Forms.Button button8;
+        private System.Windows.Forms.Button button9;
+        private System.Windows.Forms.ProgressBar progressBar3;
     }
 }
 

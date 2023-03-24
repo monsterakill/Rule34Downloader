@@ -20,6 +20,10 @@ using Microsoft.Web.WebView2.Core;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System.Drawing;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement;
+using System.Runtime.InteropServices.ComTypes;
+using System.Xml.Linq;
+using System.Net.NetworkInformation;
 
 namespace Rule34Downloader
 {
@@ -77,6 +81,7 @@ namespace Rule34Downloader
         private async void InitializeWebView()
         {
             await browser.EnsureCoreWebView2Async(null);
+            browser.CoreWebView2.NewWindowRequested += CoreWebView2_NewWindowRequested;
             //var webview2Environment = await CoreWebView2Environment.CreateAsync(string.Empty, null, null);
             //var webview2Controller = await webview2Environment.CreateCoreWebView2ControllerAsync(this.Handle);
             //var webView = webView21.CoreWebView2;
@@ -287,20 +292,22 @@ namespace Rule34Downloader
                             }
                             else if(result == ReturnType.Break)
                             {
+                                //Check Images after download
+                                CheckImagesAfterDownload($"{ImageFolderPath}\\{downloadArtistName}");
                                 breakout = true;
                                 break;
                             }
 
                             Worker.ReportProgress(ProgressBarPercent(progressBarValue, (double)progressBarMaximumValue));
                         }
-                        //Check Images after download
-
-                        CheckImagesAfterDownload($"{ImageFolderPath}\\{downloadArtistName}");
-
                         if (breakout) { breakout = false; break; };
                     }
+                    //Check Images after download
+                    CheckImagesAfterDownload($"{ImageFolderPath}\\{downloadArtistName}");
                     //!!! TO DO. CHECK FILE is not 0 bytes in folder then REDOWNLOAD IT
-                    Invoke(new Action(() => { textBox1.Text = textBox1.Text.Replace($"{downloadArtistName};", ""); }));
+                    var regex = new Regex(Regex.Escape($"{downloadArtistName};"));
+                    var replaceValue = regex.Replace(textBox1.Text.ToLower(), "", 1);
+                    Invoke(new Action(() => { textBox1.Text = replaceValue; }));
                 }
             }
             else
@@ -538,6 +545,43 @@ namespace Rule34Downloader
                     command.Parameters.AddWithValue("@imageTags", artist.ImageTags);
                     command.Parameters.AddWithValue("@source", artist.Source);
                     command.Parameters.AddWithValue("@score", artist.Score);
+
+                    command.ExecuteScalar();
+                }
+                return true;
+            }
+            return false;
+        }
+
+        public bool AddComix(ComixInfo comixInfo)
+        {
+            if (!string.IsNullOrEmpty(ConnectionString))
+            {
+                //if (CheckForDuplicateFromDB(comixInfo))
+                //{
+                //    Worker.ReportProgress(-1, $"This Image Already Found in DB: {artist.ArtistName} - {artist.ImageNumber}" + Environment.NewLine);
+                //    return false;
+                //}
+
+                var queryString = "insert into Comics(Id, Artists, NameOriginal, NameFromSite, Languages, Categories, Tags, Type, Pages, Source, GUID)" +
+                                    " values(@id, @artists, @nameOriginal, @nameFromSite, @languages, @categories, @tags, @type, @pages, @source, @GUID);";
+
+                using (SQLiteConnection connection = new SQLiteConnection(ConnectionString))
+                {
+                    connection.Open();
+
+                    var command = new SQLiteCommand(queryString, connection);
+                    command.Parameters.AddWithValue("@id", comixInfo.Id);
+                    command.Parameters.AddWithValue("@artists", comixInfo.ArtistsNames);
+                    command.Parameters.AddWithValue("@nameOriginal", comixInfo.NameOriginal);
+                    command.Parameters.AddWithValue("@nameFromSite", comixInfo.NameFromSite);
+                    command.Parameters.AddWithValue("@languages", comixInfo.Languages);
+                    command.Parameters.AddWithValue("@categories", comixInfo.Categories);
+                    command.Parameters.AddWithValue("@tags", comixInfo.Tags);
+                    command.Parameters.AddWithValue("@type", comixInfo.Type);
+                    command.Parameters.AddWithValue("@pages", comixInfo.Pages);
+                    command.Parameters.AddWithValue("@source", comixInfo.Source);
+                    command.Parameters.AddWithValue("@GUID", comixInfo.GUID);
 
                     command.ExecuteScalar();
                 }
@@ -812,6 +856,29 @@ namespace Rule34Downloader
                     }
                     return ReturnType.True;
                 }
+                if(document.DocumentNode.SelectNodes("//source[@type='video/mp4']") != null)
+                {
+                    string metascore = document.DocumentNode.SelectNodes("//source[@type='video/mp4']")[0].OuterHtml;
+
+                    string urlSimple = metascore.Substring(metascore.IndexOf("https")).Substring(0, metascore.Substring(metascore.IndexOf("https")).IndexOf("mp4") + 3);
+
+                    var fileName = metascore.Substring(metascore.IndexOf("?") + 1).Substring(0, metascore.Substring(metascore.IndexOf("?") + 1).IndexOf("t") + 1);
+
+                    int fileNameReg = int.Parse(Regex.Match(fileName, @"\d+").Value);
+
+                    Worker.ReportProgress(-1, $"Download Video: {fileNameReg}.mp4" + Environment.NewLine);
+                    using (WebClient wc = new WebClient())
+                    {
+                        //wc.DownloadProgressChanged += wc_DownloadProgressChanged;
+                        wc.DownloadFileAsync(
+                            // Param1 = Link of file
+                            new System.Uri(urlSimple),
+                            // Param2 = Path to save
+                            $"{ImageFolderPath}\\{downloadArtistName}\\{fileNameReg}.mp4"
+                        );
+                    }
+                    return ReturnType.True;
+                }
             }
 
             //Video Found
@@ -935,28 +1002,52 @@ namespace Rule34Downloader
 
         private void CheckImagesAfterDownload(string artistPath)
         {
-            if (Directory.Exists(artistPath))
+            var progressBarPercent = 0.0d;
+            var progressBarPercentInt = 0;
+            var iteration = 0;
+            try
             {
-                var filters = new string[] { "jpg", "jpeg", "png" };
-                var files = GetFilesFrom(artistPath, filters, false);
-                foreach (var file in files)
+                if (Directory.Exists(artistPath))
                 {
-                    Worker.ReportProgress(-1, $"Checking file {file}" + Environment.NewLine);
-                    var imageValid = ImageIsValid(file.FullName);
-                    if (!imageValid)
+                    var filters = new string[] { "jpg", "jpeg", "png", "mp4" };
+                    var files = GetFilesFrom(artistPath, filters, false);
+                    foreach (var file in files)
                     {
-                        Worker.ReportProgress(-1, $"File {file.FullName} is CORRUPTED" + Environment.NewLine);
-                        DownloadContentFromLinkOrId(Path.GetFileNameWithoutExtension(file.FullName), downloadArtistName: file.Directory.Name, folderFilesRedownload:true);
-                    }
-                    else
-                    {
-                        Worker.ReportProgress(-1, $"File {file.FullName} is VALID" + Environment.NewLine);
+                        iteration++;
+                        Invoke(new Action(() => { Worker.ReportProgress(-1, $"Checking file {file}" + Environment.NewLine); }));
+                        var fileValid = false;
+                        if (file.Extension == ".mp4")
+                        {
+                            fileValid = file.Length != 0;
+                        }
+                        else
+                        {
+                            fileValid = ImageIsValid(file.FullName);
+                        }
+                        //var imageValid = ImageIsValid(file.FullName);
+                        if (!fileValid)
+                        {
+                            Invoke(new Action(() => { Worker.ReportProgress(-1, $"File {file.FullName} is CORRUPTED" + Environment.NewLine); }));
+                            progressBarPercent = ((double)iteration / (double)files.Count) * 100;
+                            Invoke(new Action(() => { Worker.ReportProgress((int)progressBarPercent); }));
+                            DownloadContentFromLinkOrId(Path.GetFileNameWithoutExtension(file.FullName), downloadArtistName: file.Directory.Name, folderFilesRedownload: true);
+                        }
+                        else
+                        {
+                            Invoke(new Action(() => { Worker.ReportProgress(-1, $"File {file.FullName} is VALID" + Environment.NewLine); }));
+                            progressBarPercent = ((double)iteration / (double)files.Count) * 100;
+                            Invoke(new Action(() => { Worker.ReportProgress((int)progressBarPercent); }));
+                        }
                     }
                 }
+                else
+                {
+                    Invoke(new Action(() => { Worker.ReportProgress(-1, $"{artistPath} is not a valid file or directory" + Environment.NewLine); }));
+                }
             }
-            else
+            catch(Exception e)
             {
-                Worker.ReportProgress(-1, $"{artistPath} is not a valid file or directory" + Environment.NewLine);
+
             }
         }
 
@@ -973,6 +1064,16 @@ namespace Rule34Downloader
                 }
             }
             return filesFound;
+        }
+
+        public string ReplaceFirst(string text, string search, string replace)
+        {
+            int pos = text.IndexOf(search);
+            if (pos < 0)
+            {
+                return text;
+            }
+            return text.Substring(0, pos) + replace + text.Substring(pos + search.Length);
         }
 
 
@@ -1646,19 +1747,21 @@ namespace Rule34Downloader
                 foreach (var post in pagePostsInfo)
                 {
                     //Change default browser Save Folder
-                    var text = File.ReadAllText("D:\\Projects\\Rule34Downloader\\Rule34Downloader\\bin\\Debug\\Rule34Downloader.exe.WebView2\\EBWebView\\Default\\Preferences");
-                    var parseResponse = JToken.Parse(text);
-                    var defDirectory = parseResponse.SelectToken("$.download.default_directory");
-                    if (defDirectory != null && !defDirectory.Contains($"{pagePostsInfo[0].ArtistName}"))
-                    {
-                        defDirectory.Replace($"{ImageFolderPath}\\{pagePostsInfo[0].ArtistName}");
-                        FileInfo fileInfo = new FileInfo("D:\\Projects\\Rule34Downloader\\Rule34Downloader\\bin\\Debug\\Rule34Downloader.exe.WebView2\\EBWebView\\Default\\Preferences")
-                        {
-                            IsReadOnly = false
-                        };
-                        File.WriteAllText("D:\\Projects\\Rule34Downloader\\Rule34Downloader\\bin\\Debug\\Rule34Downloader.exe.WebView2\\EBWebView\\Default\\Preferences", parseResponse.ToString());
-                        fileInfo.IsReadOnly = true;
-                    }
+
+                    ChangeDefaultBrowserSaveFolder(pagePostsInfo[0].ArtistName);
+                    //var text = File.ReadAllText("D:\\Projects\\Rule34Downloader\\Rule34Downloader\\bin\\Debug\\Rule34Downloader.exe.WebView2\\EBWebView\\Default\\Preferences");
+                    //var parseResponse = JToken.Parse(text);
+                    //var defDirectory = parseResponse.SelectToken("$.download.default_directory");
+                    //if (defDirectory != null && !defDirectory.Contains($"{pagePostsInfo[0].ArtistName}"))
+                    //{
+                    //    defDirectory.Replace($"{ImageFolderPath}\\{pagePostsInfo[0].ArtistName}");
+                    //    FileInfo fileInfo = new FileInfo("D:\\Projects\\Rule34Downloader\\Rule34Downloader\\bin\\Debug\\Rule34Downloader.exe.WebView2\\EBWebView\\Default\\Preferences")
+                    //    {
+                    //        IsReadOnly = false
+                    //    };
+                    //    File.WriteAllText("D:\\Projects\\Rule34Downloader\\Rule34Downloader\\bin\\Debug\\Rule34Downloader.exe.WebView2\\EBWebView\\Default\\Preferences", parseResponse.ToString());
+                    //    fileInfo.IsReadOnly = true;
+                    //}
 
                     var imageId = Between(post.Source, "_thumbs/", "/thumb");
                     var urlSimple = $"https://rule34hentai.net/_images/{imageId}/{post.Id}";
@@ -1877,6 +1980,32 @@ namespace Rule34Downloader
             //var text = html;
         }
 
+        private bool ChangeDefaultBrowserSaveFolder(string artistName)
+        {
+            var text = File.ReadAllText("D:\\Projects\\Rule34Downloader\\Rule34Downloader\\bin\\Debug\\Rule34Downloader.exe.WebView2\\EBWebView\\Default\\Preferences");
+            var parseResponse = JToken.Parse(text);
+            var defDirectory = parseResponse.SelectToken("$.download.default_directory");
+            if (defDirectory != null && !defDirectory.ToString().Contains($"{artistName}")) //.Contains($"{artistName}") // && defDirectory.Value == ""
+            {
+                defDirectory.Replace($"{ImageFolderPath}\\{artistName}");
+                FileInfo fileInfo = new FileInfo("D:\\Projects\\Rule34Downloader\\Rule34Downloader\\bin\\Debug\\Rule34Downloader.exe.WebView2\\EBWebView\\Default\\Preferences")
+                {
+                    IsReadOnly = false
+                };
+                File.WriteAllText("D:\\Projects\\Rule34Downloader\\Rule34Downloader\\bin\\Debug\\Rule34Downloader.exe.WebView2\\EBWebView\\Default\\Preferences", parseResponse.ToString());
+                fileInfo.IsReadOnly = true;
+            }
+            else
+            {
+                return true;
+            }
+
+            ChangeDefaultBrowserSaveFolder(artistName);
+
+            return true;
+
+        }
+
         private void CoreWebView2_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
         {
             
@@ -2010,8 +2139,10 @@ namespace Rule34Downloader
 
         }
 
-        private async void browser_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
+        public async Task DownloadIamgesRule34Hentai()
         {
+            var url = await browser.ExecuteScriptAsync("document.location.href;");
+            if (!url.Contains("rule34hentai")) return;
             var defaultPage = "https://rule34hentai.net/";
 
             var loggedInCheck = await browser.ExecuteScriptAsync($"document.querySelectorAll('section[id=Logged_in_as_{UserName.Text}head]')[0];");
@@ -2024,16 +2155,16 @@ namespace Rule34Downloader
                 {
                     return;
                 }
-                else if(pageCountElement != "null")
+                else if (pageCountElement != "null")
                 {
                     pageCount = int.Parse(new string(pageCountElement.Substring(pageCountElement.LastIndexOf('/')).Where(char.IsDigit).ToArray()));
                 }
-                
-                var url = await browser.ExecuteScriptAsync("document.location.href;");
+
+                //var url = await browser.ExecuteScriptAsync("document.location.href;");
                 if (JsonConvert.DeserializeObject<string>(url).ToLower() == defaultPage.ToLower()) return;
                 var artistNameFromUrl = url.Split('/')[5];
                 var currentPage = int.Parse(new string(url.Substring(url.LastIndexOf('/')).Where(char.IsDigit).ToArray()));
-                
+
 
                 var thumbs = await browser.ExecuteScriptAsync($"document.querySelectorAll('.thumb').length;");
                 var pagePostsInfo = new List<PostInfo>();
@@ -2047,11 +2178,18 @@ namespace Rule34Downloader
                     var tags = await browser.ExecuteScriptAsync($"document.querySelectorAll('.thumb')[{y}].dataset.tags;");
                     var postSource = await browser.ExecuteScriptAsync($"document.querySelectorAll('#thumb_{postId}')[{0}].src;");
 
-                    if(artistName == "null" && artistNameFromUrl.Length > 1) { artistName = artistNameFromUrl; };
+                    if (artistName == "null" && artistNameFromUrl.Length > 1)
+                    {
+                        artistName = artistNameFromUrl.ToLower();
+                    }
+                    else
+                    {
+                        artistName = JsonConvert.DeserializeObject<string>(artistName).ToLower();
+                    }
                     //!!!Deser Problem Exception Need to fix
                     pagePostsInfo.Add(new PostInfo
                     {
-                        ArtistName = JsonConvert.DeserializeObject<string>(artistName).ToLower(),
+                        ArtistName = artistName,
                         Id = postId,
                         FileFormat = JsonConvert.DeserializeObject<string>(fileFormat).Substring(fileFormat.LastIndexOf('/')),
                         Tags = JsonConvert.DeserializeObject<string>(tags).Replace(' ', '|'),
@@ -2067,20 +2205,25 @@ namespace Rule34Downloader
                         Directory.CreateDirectory($"{ImageFolderPath}\\{post.ArtistName}");
                         Worker.ReportProgress(-1, $"Creating Directory: {ImageFolderPath}\\{post.ArtistName}" + Environment.NewLine);
                     }
+
+                    //ChangeDefaultBrowserSaveFolder(pagePostsInfo[0].ArtistName);
                     //Change default browser Save Folder
-                    var text = File.ReadAllText("D:\\Projects\\Rule34Downloader\\Rule34Downloader\\bin\\Debug\\Rule34Downloader.exe.WebView2\\EBWebView\\Default\\Preferences");
-                    var parseResponse = JToken.Parse(text);
-                    var defDirectory = parseResponse.SelectToken("$.download.default_directory");
-                    if (defDirectory != null && !defDirectory.Contains($"{pagePostsInfo[0].ArtistName}"))
-                    {
-                        defDirectory.Replace($"{ImageFolderPath}\\{pagePostsInfo[0].ArtistName}");
-                        FileInfo fileInfo = new FileInfo("D:\\Projects\\Rule34Downloader\\Rule34Downloader\\bin\\Debug\\Rule34Downloader.exe.WebView2\\EBWebView\\Default\\Preferences")
-                        {
-                            IsReadOnly = false
-                        };
-                        File.WriteAllText("D:\\Projects\\Rule34Downloader\\Rule34Downloader\\bin\\Debug\\Rule34Downloader.exe.WebView2\\EBWebView\\Default\\Preferences", parseResponse.ToString());
-                        fileInfo.IsReadOnly = true;
-                    }
+                    browser.CoreWebView2.Profile.DefaultDownloadFolderPath = $"{ImageFolderPath}\\{post.ArtistName}";
+
+
+                    //var text = File.ReadAllText("D:\\Projects\\Rule34Downloader\\Rule34Downloader\\bin\\Debug\\Rule34Downloader.exe.WebView2\\EBWebView\\Default\\Preferences");
+                    //var parseResponse = JToken.Parse(text);
+                    //var defDirectory = parseResponse.SelectToken("$.download.default_directory");
+                    //if (defDirectory != null && !defDirectory.Contains($"{pagePostsInfo[0].ArtistName}"))
+                    //{
+                    //    defDirectory.Replace($"{ImageFolderPath}\\{pagePostsInfo[0].ArtistName}");
+                    //    FileInfo fileInfo = new FileInfo("D:\\Projects\\Rule34Downloader\\Rule34Downloader\\bin\\Debug\\Rule34Downloader.exe.WebView2\\EBWebView\\Default\\Preferences")
+                    //    {
+                    //        IsReadOnly = false
+                    //    };
+                    //    File.WriteAllText("D:\\Projects\\Rule34Downloader\\Rule34Downloader\\bin\\Debug\\Rule34Downloader.exe.WebView2\\EBWebView\\Default\\Preferences", parseResponse.ToString());
+                    //    fileInfo.IsReadOnly = true;
+                    //}
 
                     var imageId = Between(post.Source, "_thumbs/", "/thumb");
                     var urlSimple = $"https://rule34hentai.net/_images/{imageId}/{post.Id}";
@@ -2099,8 +2242,8 @@ namespace Rule34Downloader
 
                     if (!artistAdded)
                     {
-                        browser.CoreWebView2.Navigate(defaultPage);
-                        return;
+                        //browser.CoreWebView2.Navigate(defaultPage);
+                        continue;
                     }
 
                     var testfunc = await browser.ExecuteScriptAsync($"(function () {{ " +
@@ -2114,6 +2257,9 @@ namespace Rule34Downloader
                 }
                 if (currentPage <= pageCount)
                 {
+
+
+
                     var urlFixed = url.Replace("\"", "").Substring(0, url.Replace("\"", "").LastIndexOf("/"));
                     browser.CoreWebView2.Navigate($"{urlFixed}/{currentPage + 1}");
                 }
@@ -2122,6 +2268,13 @@ namespace Rule34Downloader
                     return;
                 }
             }
+        }
+
+        private async void browser_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
+        {
+            //await Task.Run(new Action(async () => { await DownloadIamgesRule34Hentai(); }));
+            Invoke(new Action(async () => { await DownloadIamgesRule34Hentai(); }));
+            //await (Task)Invoke(new Action(async () => { await DownloadIamgesRule34Hentai(); }));
         }
 
         private void button3_Click_1(object sender, EventArgs e)
@@ -2152,7 +2305,265 @@ namespace Rule34Downloader
             //var test = ImageIsValid("C:\\Users\\Admin\\Desktop\\ezgif-4-10b738d53a25.jpg");
 
             //DownloadContentFromLinkOrId("6711198");
-            CheckImagesAfterDownload("D:\\Tests\\prywinko");
+            //CheckImagesAfterDownload("D:\\Tests\\prywinko");
+            ChangeDefaultBrowserSaveFolder("test");
+        }
+
+        private void CoreWebView2_NewWindowRequested(object sender, CoreWebView2NewWindowRequestedEventArgs e)
+        {
+            //e.NewWindow = (CoreWebView2)sender;
+            e.Handled = true;
+        }
+
+        private void button8_Click(object sender, EventArgs e)
+        {
+            var progressBarPercent = 0.0d;
+            var progressBarPercentInt = 0;
+            var iteration = 0;
+            var bw = new BackgroundWorker();
+            bw.WorkerReportsProgress = true;
+            bw.DoWork += delegate
+            {
+                var lines = File.ReadLines(@"C:\Users\Windows\Desktop\filelist.txt").ToList();
+                foreach (var line in lines)//.SkipWhile(x => x != "").Skip(1)
+                {
+                    iteration++;
+
+                    var searchPatterns = new List<string>();
+
+                    var comixOriginal = line;
+
+                    var comixNumber = comixOriginal.Split().Where(x => x.StartsWith("(") && x.EndsWith(")")).Select(x => x.Replace("(", string.Empty).Replace(")", string.Empty)).FirstOrDefault();
+
+                    var removeFileType = comixOriginal;
+                    if (comixOriginal.Contains("."))
+                    {
+                        removeFileType = comixOriginal.Substring(0, comixOriginal.LastIndexOf('.'));
+                    }
+
+                    var withoutBrackets = Regex.Replace(removeFileType, @"[(][^)]+[)]", "");
+
+                    var withoutBrackets2 = Regex.Replace(withoutBrackets, @"[{][^}]+[}]", "");
+
+                    var withoutBrackets3 = Regex.Replace(withoutBrackets2, @"\[(.*?)]", "").Trim();
+
+                    //Parody
+                    if (comixOriginal.Contains(")"))
+                    {
+                        var startPos = comixOriginal.LastIndexOf(withoutBrackets3) + withoutBrackets3.Length + 1;
+                        var lenght = comixOriginal.LastIndexOf(")") - startPos + 1;
+                        if (lenght > 0)
+                        {
+                            var result = comixOriginal.Substring(startPos, lenght);
+
+                            if (result.First() != '(')
+                            {
+                                result = "(" + result;
+                            }
+                            if (result.Last() != ')')
+                            {
+                                result += ")";
+                            }
+                            //Check multiple brackets
+                            //var splitBrackets = result.Split(new string[] { "(", ")" }, StringSplitOptions.RemoveEmptyEntries);
+                            var splitBrackets = Regex.Matches(result, @"\(.*?\)").Cast<Match>().Select(m => m.Value).ToArray();
+                            if (splitBrackets.Length > 1)
+                            {
+                                foreach (var splitbr in splitBrackets)
+                                {
+                                    searchPatterns.Add($"{withoutBrackets3} {splitbr}");
+                                }
+                            }
+                            //Name + Parody
+                            searchPatterns.Add($"{withoutBrackets3} {result}");
+                        }
+                    }
+                    //Split Main Name
+                    var splittedName = withoutBrackets3.Split(' ');
+
+                    //Main Name
+                    searchPatterns.Add(withoutBrackets3);
+
+                    //Splited name N words
+                    if (splittedName.Length > 2)
+                    {
+                        searchPatterns.Add($"{splittedName[0]} {splittedName[1]}");
+                    }
+                    if (splittedName.Length > 3)
+                    {
+                        searchPatterns.Add($"{splittedName[0]} {splittedName[1]} {splittedName[2]}");
+                    }
+                    if (splittedName.Length > 4)
+                    {
+                        searchPatterns.Add($"{splittedName[0]} {splittedName[1]} {splittedName[2]} {splittedName[3]}");
+                    }
+                    var spatternList = new List<string>();
+                    //Prepare Search Pattern
+                    foreach (var spattern in searchPatterns)
+                    {
+                        spatternList.Add(spattern.Replace(' ', '+'));
+                    }
+                    var guidForSamePattern = Guid.NewGuid();
+                    foreach (var pattern in spatternList.Distinct())
+                    {
+                        var tagList = new List<ComixInfo>();
+
+                        var web = new HtmlAgilityPack.HtmlWeb();
+
+                        var filtredComixCards = new List<HtmlAgilityPack.HtmlNode>();
+                        //continue;
+
+                        HtmlAgilityPack.HtmlDocument doc = web.Load($"https://nhentai.xxx/search/?q={pattern}");
+
+                        var r = new Random();
+                        //Timeout
+                        Thread.Sleep(r.Next(5000, 10000));
+
+                        var comixCards = doc.DocumentNode.SelectNodes("//div[contains(@class, 'gallery')]/a/div[contains(@class, 'caption')]");
+
+                        if (comixCards == null)
+                        {
+                            AddComix(new ComixInfo { ArtistsNames = "NOTHING NOT FOUND", Categories = "", GUID = guidForSamePattern.ToString(), Pages = "", Source = pattern, Tags = "", Type = "", NameOriginal = comixOriginal });
+                            continue;
+                        }
+
+                        if (comixCards.Count() > 6 && comixNumber == null)
+                        {
+                            AddComix(new ComixInfo { ArtistsNames = "TOO MUCH RESULTS WITHOUT COMIX NUMBER", Categories = "", GUID = guidForSamePattern.ToString(), Pages = "", Source = pattern, Tags = "", Type = "", NameOriginal = comixOriginal });
+                            continue;
+                        }
+
+                        var comixCard = comixNumber != null ? doc.DocumentNode.SelectNodes("//div[contains(@class, 'gallery')]/a/div[contains(@class, 'caption')]").Where(x => Regex.Replace(x.InnerText.ToLower(), @"\t|\n|\r| ", "").Contains(comixNumber.ToLower())) : comixCards;
+
+                        if (comixCards.Count() > 0 && comixCard.Count() == 0)
+                        {
+                            AddComix(new ComixInfo { ArtistsNames = "SOMETHING FOUND BY PATTERN BUT NOTHING WITH COMIX NUMBER", Categories = "", GUID = guidForSamePattern.ToString(), Pages = "", Source = pattern, Tags = "", Type = "", NameOriginal = comixOriginal });
+                            continue;
+                        }
+
+                        if (comixCard.Count() > 6)
+                        {
+                            AddComix(new ComixInfo { ArtistsNames = "TOO MUCH RESULTS", Categories = "", GUID = guidForSamePattern.ToString(), Pages = "", Source = pattern, Tags = "", Type = "", NameOriginal = comixOriginal });
+                            continue;
+                        }
+
+                        foreach (var node in comixCard)
+                        {
+                            //!!!Need Elegant Solution
+                            filtredComixCards.Add(node.ParentNode.ParentNode);
+                        }
+
+                        if (comixCard != null)
+                        {
+                            var rnd = new Random();
+                            //Timeout
+                            Thread.Sleep(rnd.Next(5000, 10000));
+
+                            var comixInfo = new ComixInfo { ArtistsNames = "", Categories = "", Id = "", Pages = "", Source = "", Tags = "", Type = "" };
+
+                            var comixTagsIds = filtredComixCards.Select(x => x.Attributes["data-tags"].Value).OrderByDescending(y => y.Count()).FirstOrDefault();
+
+                            var comixLink = filtredComixCards.Where(x => x.Attributes["data-tags"].Value == comixTagsIds).FirstOrDefault().SelectSingleNode("a[contains(@class, 'cover')]").Attributes["href"].Value;//.Select(y => y.Attributes["href"].Value);
+
+                            var comixMainPage = web.Load($"https://nhentai.xxx{comixLink}");
+
+                            //var comixTags = comixMainPage.DocumentNode.SelectNodes("//span[contains(@class, 'tags')]/a/span[contains(@class, 'name')]");
+                            var comixId = Regex.Replace(comixMainPage.DocumentNode.SelectNodes("//h3[contains(@id, 'gallery_id')]").FirstOrDefault().InnerText, @"\t|\n|\r| |#", "");
+                            var comixName = Regex.Replace(comixMainPage.DocumentNode.SelectNodes("//span[contains(@class, 'pretty')]").FirstOrDefault().InnerText, @"\t|\n|\r| |#", "");
+                            if (comixMainPage.DocumentNode.SelectNodes("//div[contains(@class, 'tag-container')]").Where(x => Regex.Replace(x.FirstChild.InnerText, @"\t|\n|\r| ", "") == "Tags").FirstOrDefault() != null)
+                            {
+                                var comixTags = comixMainPage.DocumentNode.SelectNodes("//div[contains(@class, 'tag-container')]").Where(x => Regex.Replace(x.FirstChild.InnerText, @"\t|\n|\r| ", "") == "Tags").FirstOrDefault().SelectNodes("span[contains(@class, 'tags')]/a/span[contains(@class, 'name')]").Select(x => x.InnerText);
+                                comixInfo.Tags = string.Join("|", comixTags.Distinct().ToList());
+                            }
+                            if (comixMainPage.DocumentNode.SelectNodes("//div[contains(@class, 'tag-container')]").Where(x => Regex.Replace(x.FirstChild.InnerText, @"\t|\n|\r| ", "") == "Artists").FirstOrDefault() != null)
+                            {
+                                var comixArtists = comixMainPage.DocumentNode.SelectNodes("//div[contains(@class, 'tag-container')]").Where(x => Regex.Replace(x.FirstChild.InnerText, @"\t|\n|\r| ", "") == "Artists").FirstOrDefault().SelectNodes("span[contains(@class, 'tags')]/a/span[contains(@class, 'name')]").Select(x => x.InnerText);
+                                comixInfo.ArtistsNames = string.Join("|", comixArtists.Distinct().ToList());
+                            }
+                            if (comixMainPage.DocumentNode.SelectNodes("//div[contains(@class, 'tag-container')]").Where(x => Regex.Replace(x.FirstChild.InnerText, @"\t|\n|\r| ", "") == "Languages").FirstOrDefault() != null)
+                            {
+                                var comixLanguages = comixMainPage.DocumentNode.SelectNodes("//div[contains(@class, 'tag-container')]").Where(x => Regex.Replace(x.FirstChild.InnerText, @"\t|\n|\r| ", "") == "Languages").FirstOrDefault().SelectNodes("span[contains(@class, 'tags')]/a/span[contains(@class, 'name')]").Select(x => x.InnerText);
+                                comixInfo.Languages = string.Join("|", comixLanguages.Distinct().ToList());
+                            }
+                            if (comixMainPage.DocumentNode.SelectNodes("//div[contains(@class, 'tag-container')]").Where(x => Regex.Replace(x.FirstChild.InnerText, @"\t|\n|\r| ", "") == "Categories").FirstOrDefault() != null)
+                            {
+                                var comixCategories = comixMainPage.DocumentNode.SelectNodes("//div[contains(@class, 'tag-container')]").Where(x => Regex.Replace(x.FirstChild.InnerText, @"\t|\n|\r| ", "") == "Categories").FirstOrDefault().SelectNodes("span[contains(@class, 'tags')]/a/span[contains(@class, 'name')]").Select(x => x.InnerText);
+                                comixInfo.Categories = string.Join("|", comixCategories.Distinct().ToList());
+                            }
+                            if (comixMainPage.DocumentNode.SelectNodes("//div[contains(@class, 'tag-container')]").Where(x => Regex.Replace(x.FirstChild.InnerText, @"\t|\n|\r| ", "") == "Pages:").FirstOrDefault() != null)
+                            {
+                                var comixPages = comixMainPage.DocumentNode.SelectNodes("//div[contains(@class, 'tag-container')]").Where(x => Regex.Replace(x.FirstChild.InnerText, @"\t|\n|\r| ", "") == "Pages:").FirstOrDefault().SelectNodes("span[contains(@class, 'tags')]/a/span[contains(@class, 'name')]").Select(x => x.InnerText).FirstOrDefault();
+                                comixInfo.Pages = comixPages;
+                            }
+
+                            comixInfo.Id = comixId;
+                            comixInfo.Source = $"https://nhentai.xxx{comixLink}";
+                            comixInfo.NameFromSite = comixName;
+                            comixInfo.NameOriginal = comixOriginal;
+                            comixInfo.GUID = guidForSamePattern.ToString();
+
+                            AddComix(comixInfo);
+                            break;
+                            //tagList.Add(comixInfo);
+                        }
+                    }
+                    progressBarPercent = ((double)iteration / ((double)lines.Count() - (double)lines.SkipWhile(x => x != "(同人誌) [背徳漢] 艦これ睡姦　-沈黙の姦隊- 愛宕 (艦隊これくしょん -艦これ-).zip").Count())) * 100;
+                    bw.ReportProgress(progressBarPercentInt = (int)progressBarPercent);
+                }
+            };
+            bw.ProgressChanged += delegate (object bwsender, ProgressChangedEventArgs bwe)
+            {
+                progressBar3.Maximum = 100;
+                if (bwe.ProgressPercentage != -1)
+                {
+                    //Sync Thread
+                    Invoke(new Action(() => { progressBar3.Value = bwe.ProgressPercentage; }));
+                }
+            };
+            bw.RunWorkerCompleted += delegate
+            {
+
+            };
+            bw.RunWorkerAsync();
+        }
+
+        private void button9_Click(object sender, EventArgs e)
+        {
+            var progressBarPercent = 0.0d;
+            var progressBarPercentInt = 0;
+            var iteration = 0;
+            var bw = new BackgroundWorker();
+            bw.WorkerReportsProgress = true;
+            bw.DoWork += delegate
+            {
+                var allArtists = "";
+                Random rnd = new Random();
+                var shuffledArtists = LoadArtists(true).OrderBy(x => rnd.Next()).ToList();
+                foreach (var artist in shuffledArtists)
+                {
+                    if (artist.Source != "rule34hentai.net")
+                    {
+                        iteration++;
+                        CheckImagesAfterDownload($"{ImageFolderPath}\\{artist.ArtistName}");
+                        progressBarPercent = ((double)iteration / (double)shuffledArtists.Count) * 100;
+                        bw.ReportProgress(progressBarPercentInt = (int)progressBarPercent);
+                    }
+                }
+            };
+            bw.ProgressChanged += delegate (object bwsender, ProgressChangedEventArgs bwe)
+            {
+                progressBar3.Maximum = 100;
+                if (bwe.ProgressPercentage != -1)
+                {
+                    //Sync Thread
+                    Invoke(new Action(() => { progressBar3.Value = bwe.ProgressPercentage; }));
+                }
+            };
+            bw.RunWorkerCompleted += delegate
+            {
+
+            };
+            bw.RunWorkerAsync();
         }
     }
     public static class TaskbarProgress
@@ -2292,6 +2703,21 @@ namespace Rule34Downloader
         public string ArtistName { get; set; }
         public string Source { get; set; }
 
+    }
+
+    public class ComixInfo
+    {
+        public string Id { get; set; }
+        public string Tags { get; set; }
+        public string Type { get; set; }
+        public string ArtistsNames { get; set; }
+        public string Languages { get; set; }
+        public string Categories { get; set; }
+        public string Pages { get; set; }
+        public string Source { get; set; }
+        public string NameFromSite { get; set; }
+        public string NameOriginal { get; set; }
+        public string GUID { get; set; }
     }
 
     public enum PathType
